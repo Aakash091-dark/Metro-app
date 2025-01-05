@@ -1,348 +1,255 @@
-import tkinter as tk
-from tkinter import messagebox
-from tkinter import ttk
+import streamlit as st
 import heapq
 import random
-from tkinter import Toplevel, Label
-from PIL import Image, ImageTk
-from tkinter import Toplevel, Canvas, Scrollbar, Frame
+import pandas as pd
+import folium
+from streamlit_folium import folium_static
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-
-class Heap:
+class MetroGraph:
     def __init__(self):
-        self.heap = []
-        self.node_positions = {}
-
-    def add(self, node, distance):
-        heapq.heappush(self.heap, (distance, node))
-        self.node_positions[node] = distance
-
-    def remove(self):
-        distance, node = heapq.heappop(self.heap)
-        del self.node_positions[node]
-        return node, distance
-
-    def update(self, node, new_distance):
-        for i in range(len(self.heap)):
-            if self.heap[i][1] == node:
-                self.heap[i] = (new_distance, node)
-                heapq.heapify(self.heap)
-                break
-        self.node_positions[node] = new_distance
-
-    def is_empty(self):
-        return len(self.heap) == 0
-
-
-class RealTimeData:
-    def __init__(self):
-        self.station_status = {
-            "0": {"name": "Shaheed Sthal", "dist": 0.0},
-            "1": {"name": "Hindon River", "dist": 1.0},
-            "2": {"name": "Arthala", "dist": 2.5},
-        }
-
-        self.train_arrivals = {
-            "Shaheed Sthal": random.randint(1, 10),
-            "Hindon River": random.randint(1, 10),
-            "Arthala": random.randint(1, 10),
-        }
-
-    def get_station_status(self, station):
-        return self.station_status.get(station, "No Data Available")
-
-    def get_train_arrival(self, station):
-        return self.train_arrivals.get(station, "No Data Available")
-
-
-def apply_modern_theme():
-    style = ttk.Style()
-    style.theme_use("clam")
-
-    colors = {
-        "primary": "#004d99",
-        "secondary": "#0073e6",
-        "accent": "#e60000",
-        "background": "#f2f2f2",
-        "surface": "#ffffff",
-        "text": "#333333",
-        "text_secondary": "#666666",
-    }
-
-    style.configure("TFrame", background=colors["background"])
-    style.configure(
-        "TLabel",
-        background=colors["background"],
-        foreground=colors["text"],
-        font=("Arial", 10),
-    )
-    style.configure(
-        "TButton",
-        background=colors["primary"],
-        foreground="white",
-        font=("Arial", 10, "bold"),
-    )
-    style.map(
-        "TButton",
-        background=[("active", colors["secondary"])],
-        foreground=[("active", "white")],
-    )
-    style.configure("TNotebook", background=colors["background"])
-    style.configure(
-        "TNotebook.Tab",
-        background=colors["surface"],
-        foreground=colors["text"],
-        padding=[10, 5],
-    )
-    style.map(
-        "TNotebook.Tab",
-        background=[("selected", colors["primary"])],
-        foreground=[("selected", "white")],
-    )
-
-    return style, colors
-
-
-class MetroApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Delhi Metro Route Planner")
-        self.root.geometry("900x700")
-
-        self.style, self.colors = apply_modern_theme()
-        self.root.configure(bg=self.colors["background"])
-
-        main_frame = ttk.Frame(root, padding="20 20 20 20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        header = ttk.Label(
-            main_frame,
-            text="Delhi Metro Route Planner",
-            font=("Arial", 24, "bold"),
-            foreground=self.colors["primary"],
-        )
-        header.pack(pady=(0, 20))
-
-        self.tab_control = ttk.Notebook(main_frame)
-        self.tab_control.pack(expand=True, fill="both")
-
-        self.distance_tracking_frame = ttk.Frame(
-            self.tab_control, padding="20 20 20 20"
-        )
-        self.ticket_booking_frame = ttk.Frame(self.tab_control, padding="20 20 20 20")
-
-        self.tab_control.add(self.distance_tracking_frame, text="Route Planning")
-        self.tab_control.add(self.ticket_booking_frame, text="Ticket Booking")
-
-        self.initialize_distance_tracking_tab()
-        self.initialize_ticket_booking_tab()
-
-        self.map_button = ttk.Button(
-            main_frame,
-            text="Show Delhi Metro Map",
-            command=self.show_delhi_metro_map,
-            style="Accent.TButton",
-        )
-        self.map_button.pack(pady=20)
-
-        self.metro_graph = self.create_graph()
-
-    def initialize_distance_tracking_tab(self):
-        ttk.Label(self.distance_tracking_frame, text="Source Station:").grid(
-            row=0, column=0, padx=10, pady=10, sticky="W"
-        )
-        self.source_entry = ttk.Entry(self.distance_tracking_frame, width=30)
-        self.source_entry.grid(row=0, column=1, padx=10, pady=10)
-
-        ttk.Label(self.distance_tracking_frame, text="Destination Station:").grid(
-            row=1, column=0, padx=10, pady=10, sticky="W"
-        )
-        self.destination_entry = ttk.Entry(self.distance_tracking_frame, width=30)
-        self.destination_entry.grid(row=1, column=1, padx=10, pady=10)
-
-        calculate_button = ttk.Button(
-            self.distance_tracking_frame,
-            text="Calculate Route & Fare",
-            command=self.calculate_route,
-        )
-        calculate_button.grid(row=2, column=0, columnspan=2, pady=20)
-
-        self.result_label = ttk.Label(self.distance_tracking_frame, text="")
-        self.result_label.grid(row=3, column=0, columnspan=2, pady=10)
-
-    def initialize_ticket_booking_tab(self):
-        ttk.Label(
-            self.ticket_booking_frame, text="Enter Your Details to Book Ticket:"
-        ).grid(row=0, column=0, columnspan=2, pady=10)
-
-        ttk.Label(self.ticket_booking_frame, text="Name:").grid(
-            row=1, column=0, padx=10, pady=10, sticky="W"
-        )
-        self.name_entry = ttk.Entry(self.ticket_booking_frame, width=30)
-        self.name_entry.grid(row=1, column=1, padx=10, pady=10)
-
-        ttk.Label(self.ticket_booking_frame, text="Phone Number:").grid(
-            row=2, column=0, padx=10, pady=10, sticky="W"
-        )
-        self.phone_entry = ttk.Entry(self.ticket_booking_frame, width=30)
-        self.phone_entry.grid(row=2, column=1, padx=10, pady=10)
-
-        ttk.Label(self.ticket_booking_frame, text="Email:").grid(
-            row=3, column=0, padx=10, pady=10, sticky="W"
-        )
-        self.email_entry = ttk.Entry(self.ticket_booking_frame, width=30)
-        self.email_entry.grid(row=3, column=1, padx=10, pady=10)
-
-        self.book_button = ttk.Button(
-            self.ticket_booking_frame,
-            text="Book Ticket",
-            command=self.book_ticket,
-            state=tk.DISABLED,
-        )
-        self.book_button.grid(row=4, column=0, columnspan=2, pady=20)
-
-    def show_delhi_metro_map(self):
-        try:
-            map_window = Toplevel(self.root)
-            map_window.title("Delhi Metro Map")
-            map_window.geometry("1000x800")
-
-            canvas = Canvas(map_window, bg="white")
-            canvas.pack(side="left", fill="both", expand=True)
-
-            x_scroll = Scrollbar(map_window, orient="horizontal", command=canvas.xview)
-            y_scroll = Scrollbar(map_window, orient="vertical", command=canvas.yview)
-            x_scroll.pack(side="bottom", fill="x")
-            y_scroll.pack(side="right", fill="y")
-            canvas.configure(xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
-
-            img = Image.open("delhi_metro_map.jpeg")
-            map_img = ImageTk.PhotoImage(img)
-            canvas.create_image(0, 0, image=map_img, anchor="nw")
-            canvas.image = map_img
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load map: {e}")
-
-    def create_graph(self):
-        graph = {
-            "Shaheed Sthal (New Bus Adda)": {"Hindon River": 1.0},
-            "Hindon River": {"Shaheed Sthal (New Bus Adda)": 1.0, "Arthala": 1.5},
+        self.graph = {
+            "Shaheed Sthal": {"Hindon River": 1.0},
+            "Hindon River": {"Shaheed Sthal": 1.0, "Arthala": 1.5},
             "Arthala": {"Hindon River": 1.5, "Mohan Nagar": 0.7},
             "Mohan Nagar": {"Arthala": 0.7, "Shyam Park": 1.3},
-            "Shyam Park": {
-                "Mohan Nagar": 1.3,
-                "Major Mohit Sharma Rajendra Nagar": 1.2,
-            },
-            "Major Mohit Sharma Rajendra Nagar": {"Shyam Park": 1.2, "Raj Bagh": 1.2},
-            "Raj Bagh": {
-                "Major Mohit Sharma Rajendra Nagar": 1.2,
-                "Shaheed Nagar": 1.3,
-            },
+            "Shyam Park": {"Mohan Nagar": 1.3, "Major Mohit Sharma": 1.2},
+            "Major Mohit Sharma": {"Shyam Park": 1.2, "Raj Bagh": 1.2},
+            "Raj Bagh": {"Major Mohit Sharma": 1.2, "Shaheed Nagar": 1.3},
             "Shaheed Nagar": {"Raj Bagh": 1.3, "Dilshad Garden": 1.2},
             "Dilshad Garden": {"Shaheed Nagar": 1.2, "Jhil mil": 0.9},
             "Jhil mil": {"Dilshad Garden": 0.9, "Mansarovar Park": 1.1},
-            "Mansarovar Park": {"Jhil mil": 1.1},
+            "Mansarovar Park": {"Jhil mil": 1.1}
+        }
+        
+        # Station coordinates (approximate values for Delhi metro stations)
+        self.station_coords = {
+            "Shaheed Sthal": (28.6725, 77.3718),
+            "Hindon River": (28.6789, 77.3657),
+            "Arthala": (28.6853, 77.3596),
+            "Mohan Nagar": (28.6917, 77.3535),
+            "Shyam Park": (28.6981, 77.3474),
+            "Major Mohit Sharma": (28.7045, 77.3413),
+            "Raj Bagh": (28.7109, 77.3352),
+            "Shaheed Nagar": (28.7173, 77.3291),
+            "Dilshad Garden": (28.7237, 77.3230),
+            "Jhil mil": (28.7301, 77.3169),
+            "Mansarovar Park": (28.7365, 77.3108)
         }
 
-    def calculate_route(self):
-        source = self.source_entry.get()
-        destination = self.destination_entry.get()
-
-        if source not in self.metro_graph or destination not in self.metro_graph:
-            messagebox.showerror("Error", "Invalid source or destination station.")
-            return
-
-        path, distance = self.dijkstra(source, destination)
-
-        if path is None:
-            self.result_label.config(text="No route found.")
-        else:
-            fare = self.calculate_fare(distance)
-            path_str = " -> ".join(path)
-            self.result_label.config(
-                text=f"Shortest path: {path_str}\nTotal distance: {distance} km\nTotal fare: {fare} INR"
-            )
-            self.book_button.config(state=tk.NORMAL)
+    def get_stations(self):
+        return list(self.graph.keys())
 
     def dijkstra(self, start, end):
-        distances = {station: float("inf") for station in self.metro_graph}
-        previous_stations = {station: None for station in self.metro_graph}
+        distances = {station: float('inf') for station in self.graph}
+        previous = {station: None for station in self.graph}
         distances[start] = 0
-        queue = [(0, start)]
-
-        while queue:
-            current_distance, current_station = heapq.heappop(queue)
-
-            if current_station == end:
-                path = []
-                while current_station is not None:
-                    path.append(current_station)
-                    current_station = previous_stations[current_station]
-                path.reverse()
-                return path, distances[end]
-
+        pq = [(0, start)]
+        
+        while pq:
+            current_distance, current_station = heapq.heappop(pq)
+            
             if current_distance > distances[current_station]:
                 continue
-
-            for neighbor, weight in self.metro_graph[current_station].items():
+                
+            if current_station == end:
+                break
+                
+            for neighbor, weight in self.graph[current_station].items():
                 distance = current_distance + weight
+                
                 if distance < distances[neighbor]:
                     distances[neighbor] = distance
-                    previous_stations[neighbor] = current_station
-                    heapq.heappush(queue, (distance, neighbor))
+                    previous[neighbor] = current_station
+                    heapq.heappush(pq, (distance, neighbor))
+        
+        if distances[end] == float('inf'):
+            return None, None
+            
+        path = []
+        current = end
+        while current is not None:
+            path.append(current)
+            current = previous[current]
+        path.reverse()
+        
+        return path, distances[end]
 
-        return None, None
+def calculate_fare(distance):
+    base_fare = 10
+    per_km_charge = 2
+    return base_fare + (distance * per_km_charge)
 
-    def calculate_fare(self, distance):
-        fare_rate = 10
-        return round(distance * fare_rate, 2)
+def generate_ticket_qr():
+    # Placeholder for QR code generation
+    return "QR_CODE_DATA"
 
-    def update_real_time_data(self):
-        station = self.source_entry.get()
-        if station and station in self.metro_graph:
-            self.station_status_label.config(text=f"Station Status ({station}): Open")
-            self.arrival_label.config(
-                text=f"Train Arrival at {station}: {random.randint(1, 10)} min"
-            )
+def create_route_map(metro_graph, path):
+    m = folium.Map(location=[28.7041, 77.3025], zoom_start=12)
+    
+    # Plot all stations
+    for station, coords in metro_graph.station_coords.items():
+        color = 'red' if station in path else 'blue'
+        folium.CircleMarker(
+            coords,
+            radius=8,
+            color=color,
+            fill=True,
+            popup=station
+        ).add_to(m)
+    
+    # Plot route
+    if path:
+        route_coords = []
+        for i in range(len(path)-1):
+            start = metro_graph.station_coords[path[i]]
+            end = metro_graph.station_coords[path[i+1]]
+            route_coords.extend([start, end])
+            folium.PolyLine(
+                locations=[start, end],
+                weight=4,
+                color='red',
+            ).add_to(m)
+    
+    return m
 
-        disruptions = self.get_disruptions()
-        disruption_text = "\n".join(
-            [f"{station}: {disruption}" for station, disruption in disruptions.items()]
-        )
-        self.disruptions_label.config(text=f"Service Disruptions:\n{disruption_text}")
+def main():
+    st.set_page_config(page_title="Delhi Metro Route Planner", layout="wide")
+    
+    # Initialize session state
+    if 'metro_graph' not in st.session_state:
+        st.session_state.metro_graph = MetroGraph()
+    if 'booking_history' not in st.session_state:
+        st.session_state.booking_history = []
 
-        self.root.after(10000, self.update_real_time_data)
-
-    def get_disruptions(self):
-        return {
-            "Mohan Nagar": "Line 1 delayed",
-            "Dilshad Garden": "Maintenance ongoing",
+    # Custom CSS
+    st.markdown("""
+        <style>
+        .main {
+            padding: 2rem;
         }
+        .stButton>button {
+            width: 100%;
+            background-color: #FF4B4B;
+            color: white;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-    def book_ticket(self):
-        name = self.name_entry.get()
-        phone = self.phone_entry.get()
-        email = self.email_entry.get()
-
-        if not name or not phone or not email:
-            messagebox.showerror(
-                "Error", "Please enter your name, phone number, and email."
-            )
+    # Header
+    st.title("🚇 Delhi Metro Route Planner")
+    
+    # Sidebar for navigation
+    page = st.sidebar.radio("Navigation", ["Route Planning", "Ticket Booking", "Real-time Updates"])
+    
+    if page == "Route Planning":
+        st.header("Plan Your Journey")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            source = st.selectbox("Select Source Station", st.session_state.metro_graph.get_stations())
+            destination = st.selectbox("Select Destination Station", st.session_state.metro_graph.get_stations())
+            
+            if st.button("Find Route"):
+                path, distance = st.session_state.metro_graph.dijkstra(source, destination)
+                
+                if path:
+                    fare = calculate_fare(distance)
+                    st.success("Route Found!")
+                    st.write(f"🛤️ Path: {' → '.join(path)}")
+                    st.write(f"📏 Distance: {distance:.2f} km")
+                    st.write(f"💰 Estimated Fare: ₹{fare:.2f}")
+                    
+                    # Store route details in session state
+                    st.session_state.current_route = {
+                        'path': path,
+                        'distance': distance,
+                        'fare': fare
+                    }
+                else:
+                    st.error("No route found between selected stations.")
+        
+        with col2:
+            # Display route on map
+            if 'current_route' in st.session_state:
+                route_map = create_route_map(st.session_state.metro_graph, st.session_state.current_route['path'])
+                folium_static(route_map)
+    
+    elif page == "Ticket Booking":
+        st.header("Book Your Ticket")
+        
+        if 'current_route' not in st.session_state:
+            st.warning("Please plan your route first!")
             return
-
-        booking_info = (
-            f"Name: {name}\nPhone: {phone}\nEmail: {email}\n"
-            f"Source: {self.source_entry.get()}\nDestination: {self.destination_entry.get()}\n"
-            f"Fare: {self.result_label.cget('text').split('\\n')[-1]}"
+            
+        with st.form("booking_form"):
+            name = st.text_input("Full Name")
+            email = st.text_input("Email")
+            phone = st.text_input("Phone Number")
+            journey_date = st.date_input("Journey Date")
+            
+            submitted = st.form_submit_button("Book Ticket")
+            
+            if submitted:
+                if name and email and phone:
+                    # Create booking
+                    booking = {
+                        'booking_id': f"METRO{random.randint(10000,99999)}",
+                        'name': name,
+                        'source': st.session_state.current_route['path'][0],
+                        'destination': st.session_state.current_route['path'][-1],
+                        'fare': st.session_state.current_route['fare'],
+                        'date': journey_date.strftime("%Y-%m-%d"),
+                        'qr_code': generate_ticket_qr()
+                    }
+                    
+                    st.session_state.booking_history.append(booking)
+                    
+                    # Display booking confirmation
+                    st.success("Ticket Booked Successfully!")
+                    st.json(booking)
+                else:
+                    st.error("Please fill all required fields!")
+    
+    else:  # Real-time Updates
+        st.header("Real-time Metro Updates")
+        
+        # Simulated real-time data
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Station Status")
+            status_df = pd.DataFrame({
+                'Station': st.session_state.metro_graph.get_stations(),
+                'Status': ['Operational'] * len(st.session_state.metro_graph.get_stations()),
+                'Next Train': [f"{random.randint(1,10)} mins" for _ in range(len(st.session_state.metro_graph.get_stations()))]
+            })
+            st.dataframe(status_df)
+        
+        with col2:
+            st.subheader("Service Alerts")
+            alerts = [
+                "Minor delays on Red Line due to technical issue",
+                "Normal service on all other lines",
+                "Maintenance work scheduled for tonight"
+            ]
+            for alert in alerts:
+                st.info(alert)
+        
+        # Crowd density heat map
+        st.subheader("Station Crowd Density")
+        stations = st.session_state.metro_graph.get_stations()
+        crowd_data = [random.randint(20, 100) for _ in stations]
+        
+        fig = go.Figure(data=[go.Bar(x=stations, y=crowd_data)])
+        fig.update_layout(
+            title="Current Station Crowd Levels",
+            xaxis_title="Stations",
+            yaxis_title="Crowd Density (%)"
         )
-
-        messagebox.showinfo(
-            "Booking Confirmation", f"Ticket booked successfully!\n\n{booking_info}"
-        )
-        self.book_button.config(state=tk.DISABLED)
-
+        st.plotly_chart(fig)
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = MetroApp(root)
-    root.mainloop()
+    main()
